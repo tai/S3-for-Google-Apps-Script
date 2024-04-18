@@ -58,7 +58,7 @@ function S3(accessKeyId, secretAccessKey, options) {
   
   this.accessKeyId = accessKeyId;
   this.secretAccessKey = secretAccessKey;
-  this.options = options | {};
+  this.options = options || {};
 }
 
 

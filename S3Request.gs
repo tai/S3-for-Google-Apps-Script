@@ -15,15 +15,17 @@ function S3Request(service) {
   this.httpMethod = "GET";
   this.contentType = "";
   this.content = ""; //content of the HTTP request
-  this.bucket = ""; //gets turned into host (bucketName.s3.amazonaws.com)
+  this.bucket = ""; //gets turned into host (bucketName.s3.amazonaws.com on AWS) or path (/<bucket>/<key> on Linode)
   this.objectName = "";
   this.headers = {};
 
   this.date = new Date();
   this.serviceName = 's3';
-  this.region = 'us-east-1';
   this.expiresHeader = 'presigned-expires';
   this.extQueryString = '';
+
+  var ep = this.service.options.endpoint;
+  this.region = ep ? ep.replace(/https?:\/\/([^\.]+).*/, '$1') : 'DUMMY';
 }
 
 /* sets contenetType of the request
@@ -90,7 +92,7 @@ S3Request.prototype.setBucket = function(bucket) {
  */
 S3Request.prototype.setObjectName = function(objectName) {
   if (typeof objectName != 'string') throw "objectName must be string";
-  this.objectName = objectName;
+  this.objectName = objectName.replace(/^\/+/, '');
   return this;
 };
 
@@ -110,7 +112,16 @@ S3Request.prototype.addHeader = function(name, value) {
 };
 
 S3Request.prototype._getUrl = function() {
-  return "https://" + this.bucket.toLowerCase() + ".s3." + this.region + ".amazonaws.com/" + this.objectName;
+  var ep = this.service.options.endpoint;
+
+  if (ep) {
+    var url = ep.replace(/\/$/, '');
+    return url + "/" + this.bucket.toLowerCase() + "/" + this.objectName;
+  }
+  else {
+    var url = 'https://' + this.bucket.toLowerCase() + '.s3.amazonaws.com';
+    return url + "/" + this.objectName;
+  }
 };
 /* gets Url for S3 request
  * @return {string} url to which request will be sent
@@ -140,8 +151,8 @@ S3Request.prototype.execute = function(options) {
   delete this.headers['Authorization'];
   delete this.headers['Date'];
   delete this.headers['X-Amz-Date'];
-  this.headers['X-Amz-Content-Sha256'] = this.hexEncodedBodyHash();
-  this.headers['Host'] = this._getUrl().replace(/https?:\/\/(.+amazonaws\.com).*/, '$1');
+  this.headers['Host'] = this._getUrl().replace(/https?:\/\/([^/]+).*/, '$1');
+  this.headers['X-Amz-Content-SHA256'] = this.hexEncodedBodyHash();
 
   var credentials = {
     accessKeyId: this.service.accessKeyId,
@@ -214,6 +225,7 @@ S3Request.prototype.addAuthorization = function(credentials, date) {
   } else {
     this.addHeaders(credentials, datetime);
   }
+
   this.headers['Authorization'] = this.authorization(credentials, datetime)
 }
 
@@ -337,7 +349,7 @@ S3Request.prototype.canonicalString = function() {
 }
 
 S3Request.prototype.canonicalUri = function(uri) {
-  var m = uri.match(/https?:\/\/(.+)\.s3.*\.amazonaws\.com\/(.+)$/);
+  var m = uri.match(/https?:\/\/([^/]+)\/(.+)$/);
   var object = m ? m[2] : ""
   return "/" + encodeURIComponent(object).replace(/%2F/ig, '/')
 }
@@ -396,8 +408,8 @@ S3Request.prototype.hexEncodedHash = function(string) {
 S3Request.prototype.hexEncodedBodyHash = function() {
   if (this.isPresigned() && !this.content.length) {
     return 'UNSIGNED-PAYLOAD'
-  } else if (this.headers['X-Amz-Content-Sha256']) {
-    return this.headers['X-Amz-Content-Sha256']
+  } else if (this.headers['X-Amz-Content-SHA256']) {
+    return this.headers['X-Amz-Content-SHA256']
   } else {
     return this.hexEncodedHash(this.content || '')
   }
